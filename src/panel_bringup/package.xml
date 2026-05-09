@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>panel_bringup</name>
+  <version>0.1.0</version>
+  <description>Launch and deployment configuration for the Raspberry Pi touchscreen HMI panel.</description>
+  <maintainer email="erd@raspberrypi-jz.local">erd</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>panel_nodes</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+</package>

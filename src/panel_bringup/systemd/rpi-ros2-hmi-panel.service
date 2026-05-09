@@ -1,0 +1,21 @@
+[Unit]
+Description=ROS 2 touchscreen HMI panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erd
+Environment=ROS_DOMAIN_ID=42
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=SDL_VIDEODRIVER=wayland
+Environment=SDL_RENDER_DRIVER=software
+WorkingDirectory=/home/erd/rpi-ros2-hmi-panel
+ExecStart=/bin/bash -lc 'source /home/erd/rpi-ros2-hmi-panel/deployment/scripts/source_workspace.bash && ros2 launch panel_bringup panel.launch.py'
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
