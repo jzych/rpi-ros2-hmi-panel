@@ -67,7 +67,7 @@ enum class PanelState : std::uint8_t {
       return "UNKNOWN";
   }
 
-  return "UNKNOWN";
+  return "UNKNOWN";  // unreachable: all enum values handled above
 }
 
 }  // namespace rpi_ros2_hmi_panel

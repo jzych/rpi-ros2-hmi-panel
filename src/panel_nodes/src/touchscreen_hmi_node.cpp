@@ -68,7 +68,7 @@ struct Color {
       return Color{45, 45, 45, 255};
   }
 
-  return Color{45, 45, 45, 255};
+  return Color{45, 45, 45, 255};  // unreachable: all enum values handled above
 }
 
 void set_render_color(SDL_Renderer* renderer, const Color color)
@@ -162,12 +162,19 @@ void draw_text(
     const int x,
     const int y,
     const int scale,
-    const Color color)
+    const Color color,
+    const rclcpp::Logger& logger)
 {
+  static constexpr std::array<std::string_view, 7> kBlankGlyph{
+      "000", "000", "000", "000", "000", "000", "000"};
   set_render_color(renderer, color);
   int cursor_x = x;
   for (const auto character : text) {
     const auto glyph = glyph_for(character);
+    if (character != ' ' && glyph == kBlankGlyph) {
+      RCLCPP_WARN_ONCE(logger, "No glyph for character 0x%02X; renders blank",
+                       static_cast<unsigned char>(character));
+    }
     for (int row = 0; row < 7; ++row) {
       for (int col = 0; col < 3; ++col) {
         if (glyph[static_cast<std::size_t>(row)][static_cast<std::size_t>(col)] == '1') {
@@ -258,8 +265,14 @@ class EvdevTouchReader {
   {
     input_absinfo abs_x{};
     input_absinfo abs_y{};
-    ioctl(fd, EVIOCGABS(ABS_X), &abs_x);
-    ioctl(fd, EVIOCGABS(ABS_Y), &abs_y);
+    if (::ioctl(fd, EVIOCGABS(ABS_X), &abs_x) < 0) {
+      RCLCPP_WARN(logger_, "EVIOCGABS(ABS_X) failed: %s; touch X coordinates will be unscaled",
+                  std::strerror(errno));
+    }
+    if (::ioctl(fd, EVIOCGABS(ABS_Y), &abs_y) < 0) {
+      RCLCPP_WARN(logger_, "EVIOCGABS(ABS_Y) failed: %s; touch Y coordinates will be unscaled",
+                  std::strerror(errno));
+    }
 
     rpi_ros2_hmi_panel::PressFrameTouchProcessor processor{
         layout_config_, [this](const Point point) { callback_(point); }};
@@ -304,6 +317,13 @@ class TouchscreenHmiNode final : public rclcpp::Node {
     layout_config_.screen_width_px = declare_parameter<int>("screen_width_px", 800);
     layout_config_.screen_height_px = declare_parameter<int>("screen_height_px", 480);
     layout_config_.rotation_degrees = declare_parameter<int>("rotation_degrees", 0);
+    if (layout_config_.rotation_degrees != 0 && layout_config_.rotation_degrees != 90 &&
+        layout_config_.rotation_degrees != 180 && layout_config_.rotation_degrees != 270) {
+      RCLCPP_ERROR(get_logger(),
+                   "rotation_degrees must be 0, 90, 180, or 270; got %d, defaulting to 0",
+                   layout_config_.rotation_degrees);
+      layout_config_.rotation_degrees = 0;
+    }
     layout_config_.status_bar_height_px = declare_parameter<int>("status_bar_height_px", 48);
     layout_config_.center_indicator_radius_px =
         declare_parameter<int>("center_indicator_radius_px", 64);
@@ -422,7 +442,6 @@ class TouchscreenHmiNode final : public rclcpp::Node {
     ShutdownMsg message;
     shutdown_publisher_->publish(message);
     RCLCPP_INFO(get_logger(), "Published application shutdown request");
-    std::this_thread::sleep_for(100ms);
     rclcpp::shutdown();
   }
 
@@ -478,12 +497,13 @@ class TouchscreenHmiNode final : public rclcpp::Node {
     SDL_RenderFillRect(renderer_, &status);
 
     const auto text_scale = std::max(2, layout_config_.status_bar_height_px / 14);
-    draw_text(renderer_, device_name_, 12, 10, text_scale, Color{235, 235, 235, 255});
+    draw_text(renderer_, device_name_, 12, 10, text_scale, Color{235, 235, 235, 255},
+              get_logger());
 
     const auto time_text = current_time_hhmmss();
     const auto time_width = static_cast<int>(time_text.size()) * 4 * text_scale;
     draw_text(renderer_, time_text, layout_config_.screen_width_px - time_width - 12, 10,
-              text_scale, Color{235, 235, 235, 255});
+              text_scale, Color{235, 235, 235, 255}, get_logger());
   }
 
   void draw_center_indicator()

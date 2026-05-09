@@ -7,11 +7,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
 #include <ctime>
+#include <future>
 #include <iomanip>
 #include <memory>
 #include <mutex>
@@ -98,16 +100,12 @@ class EthernetStateServerNode final : public rclcpp::Node {
       server_thread_.join();
     }
 
-    std::vector<std::thread> clients;
+    std::vector<std::future<void>> futures;
     {
       std::lock_guard<std::mutex> lock(client_threads_mutex_);
-      clients.swap(client_threads_);
+      futures.swap(client_futures_);
     }
-    for (auto& client : clients) {
-      if (client.joinable()) {
-        client.join();
-      }
-    }
+    // Each future's destructor blocks until the client handler returns.
   }
 
  private:
@@ -169,7 +167,23 @@ class EthernetStateServerNode final : public rclcpp::Node {
       }
 
       std::lock_guard<std::mutex> lock(client_threads_mutex_);
-      client_threads_.emplace_back([this, client_fd]() { handle_client(client_fd); });
+      // Remove futures for connections that have already finished.
+      client_futures_.erase(
+          std::remove_if(
+              client_futures_.begin(), client_futures_.end(),
+              [](std::future<void>& f) {
+                return f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+              }),
+          client_futures_.end());
+
+      if (static_cast<int>(client_futures_.size()) >= max_clients_) {
+        RCLCPP_WARN(get_logger(), "Connection limit reached (%d), rejecting new client",
+                    max_clients_);
+        ::close(client_fd);
+        continue;
+      }
+      client_futures_.push_back(
+          std::async(std::launch::async, [this, client_fd]() { handle_client(client_fd); }));
     }
   }
 
@@ -257,7 +271,7 @@ class EthernetStateServerNode final : public rclcpp::Node {
   rclcpp::Subscription<ShutdownMsg>::SharedPtr shutdown_subscription_;
 
   std::mutex client_threads_mutex_;
-  std::vector<std::thread> client_threads_;
+  std::vector<std::future<void>> client_futures_;
 };
 
 }  // namespace
